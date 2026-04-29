@@ -8,6 +8,7 @@ class VoiceChangerParams:
     content_vec_500_onnx: str
     content_vec_500_onnx_on: bool
     hubert_base: str
+    light_hubert: str
     hubert_base_jp: str
     hubert_soft: str
     nsf_hifigan: str

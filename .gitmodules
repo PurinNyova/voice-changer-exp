@@ -1,0 +1,3 @@
+[submodule "server/lighthubert"]
+	path = server/lighthubert
+	url = https://github.com/mechanicalsea/lighthubert

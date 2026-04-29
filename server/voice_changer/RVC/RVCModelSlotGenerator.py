@@ -81,7 +81,7 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
                 slot.embChannels = 768
                 slot.embOutputLayer = 12
                 slot.useFinalProj = False
-                slot.embedder = "hubert_base"
+                slot.embedder = "light_hubert"
                 print("[Voice Changer] Official Model(pyTorch) : v2")
 
         else:
@@ -145,7 +145,10 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
                 print(f"[Voice Changer] ONNX Model: ch:{slot.embChannels}, L:{slot.embOutputLayer}, FP:{slot.useFinalProj}")
 
             if "embedder" not in metadata:
-                slot.embedder = "hubert_base"
+                if slot.embChannels == 768 and slot.embOutputLayer == 12 and slot.useFinalProj is False:
+                    slot.embedder = "light_hubert"
+                else:
+                    slot.embedder = "hubert_base"
             else:
                 slot.embedder = metadata["embedder"]
 

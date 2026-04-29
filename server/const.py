@@ -59,6 +59,7 @@ def getFrontendPath():
 
 EmbedderType: TypeAlias = Literal[
     "hubert_base",
+    "light_hubert",
     "contentvec",
     "hubert-base-japanese",
     "whisper",

@@ -12,6 +12,7 @@ logger = VoiceChangaerLogger.get_instance().getLogger()
 def downloadWeight(voiceChangerParams: VoiceChangerParams):
     content_vec_500_onnx = voiceChangerParams.content_vec_500_onnx
     hubert_base = voiceChangerParams.hubert_base
+    light_hubert = voiceChangerParams.light_hubert
     hubert_base_jp = voiceChangerParams.hubert_base_jp
     hubert_soft = voiceChangerParams.hubert_soft
     nsf_hifigan = voiceChangerParams.nsf_hifigan
@@ -24,6 +25,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
     weight_files = [
         content_vec_500_onnx,
         hubert_base,
+        light_hubert,
         hubert_base_jp,
         hubert_soft,
         nsf_hifigan,
@@ -43,12 +45,20 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
                 "position": 0,
             }
         )
+    if os.path.exists(light_hubert) is False:
+        downloadParams.append(
+            {
+                "url": "https://huggingface.co/mechanicalsea/lighthubert/resolve/main/lighthubert_base.pt",
+                "saveTo": light_hubert,
+                "position": 1,
+            }
+        )
     if os.path.exists(hubert_base_jp) is False:
         downloadParams.append(
             {
                 "url": "https://huggingface.co/rinna/japanese-hubert-base/resolve/main/fairseq/model.pt",
                 "saveTo": hubert_base_jp,
-                "position": 1,
+                "position": 2,
             }
         )
     if os.path.exists(hubert_soft) is False:
@@ -56,7 +66,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/resolve/main/ddsp-svc30/embedder/hubert-soft-0d54a1f4.pt",
                 "saveTo": hubert_soft,
-                "position": 2,
+                "position": 3,
             }
         )
     if os.path.exists(nsf_hifigan) is False:
@@ -64,7 +74,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/resolve/main/ddsp-svc30/nsf_hifigan_20221211/model.bin",
                 "saveTo": nsf_hifigan,
-                "position": 3,
+                "position": 4,
             }
         )
     nsf_hifigan_config = os.path.join(os.path.dirname(nsf_hifigan), "config.json")
@@ -74,7 +84,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/raw/main/ddsp-svc30/nsf_hifigan_20221211/config.json",
                 "saveTo": nsf_hifigan_config,
-                "position": 4,
+                "position": 5,
             }
         )
     nsf_hifigan_onnx = os.path.join(os.path.dirname(nsf_hifigan), "nsf_hifigan.onnx")
@@ -83,7 +93,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/resolve/main/ddsp-svc30/nsf_hifigan_onnx_20221211/nsf_hifigan.onnx",
                 "saveTo": nsf_hifigan_onnx,
-                "position": 4,
+                "position": 5,
             }
         )
 
@@ -92,7 +102,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/resolve/main/crepe/onnx/full.onnx",
                 "saveTo": crepe_onnx_full,
-                "position": 5,
+                "position": 6,
             }
         )
     if os.path.exists(crepe_onnx_tiny) is False:
@@ -100,7 +110,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/resolve/main/crepe/onnx/tiny.onnx",
                 "saveTo": crepe_onnx_tiny,
-                "position": 6,
+                "position": 7,
             }
         )
 
@@ -109,7 +119,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights_gpl/resolve/main/content-vec/contentvec-f.onnx",
                 "saveTo": content_vec_500_onnx,
-                "position": 7,
+                "position": 8,
             }
         )
     if os.path.exists(rmvpe) is False:
@@ -117,7 +127,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights/resolve/main/rmvpe/rmvpe_20231006.pt",
                 "saveTo": rmvpe,
-                "position": 8,
+                "position": 9,
             }
         )
     if os.path.exists(rmvpe_onnx) is False:
@@ -125,7 +135,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://huggingface.co/wok000/weights_gpl/resolve/main/rmvpe/rmvpe_20231006.onnx",
                 "saveTo": rmvpe_onnx,
-                "position": 9,
+                "position": 10,
             }
         )
 
@@ -134,14 +144,14 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
             {
                 "url": "https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt",
                 "saveTo": whisper_tiny,
-                "position": 10,
+                "position": 11,
             }
         )
 
     with ThreadPoolExecutor() as pool:
         pool.map(download, downloadParams)
 
-    if os.path.exists(hubert_base) is False or os.path.exists(hubert_base_jp) is False or os.path.exists(hubert_soft) is False or os.path.exists(nsf_hifigan) is False or os.path.exists(nsf_hifigan_config) is False:
+    if os.path.exists(hubert_base) is False or os.path.exists(light_hubert) is False or os.path.exists(hubert_base_jp) is False or os.path.exists(hubert_soft) is False or os.path.exists(nsf_hifigan) is False or os.path.exists(nsf_hifigan_config) is False:
         raise WeightDownladException()
 
     # ファイルサイズをログに書き込む。（デバッグ用）

@@ -5,6 +5,7 @@ from voice_changer.RVC.embedder.Embedder import Embedder
 from voice_changer.RVC.embedder.FairseqContentvec import FairseqContentvec
 from voice_changer.RVC.embedder.FairseqHubert import FairseqHubert
 from voice_changer.RVC.embedder.FairseqHubertJp import FairseqHubertJp
+from voice_changer.RVC.embedder.LightHubert import LightHubert
 from voice_changer.RVC.embedder.OnnxContentvec import OnnxContentvec
 from voice_changer.RVC.embedder.Whisper import Whisper
 from voice_changer.utils.VoiceChangerParams import VoiceChangerParams
@@ -46,6 +47,14 @@ class EmbedderManager:
                 print("[Voice Changer] use torch contentvec", e)
                 file = cls.params.hubert_base
                 return FairseqHubert().loadModel(file, dev, isHalf)
+        elif embederType == "light_hubert":
+            try:
+                file = cls.params.light_hubert
+                return LightHubert().loadModel(file, dev, isHalf)
+            except Exception as e:
+                print("[Voice Changer] failed to load LightHuBERT. fallback to hubert_base", e)
+                file = cls.params.hubert_base
+                return FairseqHubert().loadModel(file, dev, isHalf)
         elif embederType == "hubert-base-japanese":
             file = cls.params.hubert_base_jp
             return FairseqHubertJp().loadModel(file, dev, isHalf)
@@ -63,4 +72,5 @@ class EmbedderManager:
             file = cls.params.whisper_tiny
             return Whisper().loadModel(file, dev, isHalf)
         else:
+            file = cls.params.hubert_base
             return FairseqHubert().loadModel(file, dev, isHalf)

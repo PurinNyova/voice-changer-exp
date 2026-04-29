@@ -4,6 +4,8 @@
     },
     "workbench.colorCustomizations": {
       "tab.activeBackground": "#65952acc"
-    }
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "python-envs.defaultPackageManager": "ms-python.python:pip"
   }
   

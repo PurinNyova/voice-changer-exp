@@ -56,6 +56,7 @@ def setupArgParser():
     parser.add_argument("--content_vec_500_onnx", type=str, default="pretrain/content_vec_500.onnx", help="path to content_vec_500 model(onnx)")
     parser.add_argument("--content_vec_500_onnx_on", type=strtobool, default=True, help="use or not onnx for  content_vec_500")
     parser.add_argument("--hubert_base", type=str, default="pretrain/hubert_base.pt", help="path to hubert_base model(pytorch)")
+    parser.add_argument("--light_hubert", type=str, default="pretrain/lighthubert_base.pt", help="path to LightHuBERT model(pytorch)")
     parser.add_argument("--hubert_base_jp", type=str, default="pretrain/rinna_hubert_base_jp.pt", help="path to hubert_base_jp model(pytorch)")
     parser.add_argument("--hubert_soft", type=str, default="pretrain/hubert/hubert-soft-0d54a1f4.pt", help="path to hubert_soft model(pytorch)")
     parser.add_argument("--whisper_tiny", type=str, default="pretrain/whisper_tiny.pt", help="path to hubert_soft model(pytorch)")
@@ -102,6 +103,7 @@ voiceChangerParams = VoiceChangerParams(
     content_vec_500_onnx=args.content_vec_500_onnx,
     content_vec_500_onnx_on=args.content_vec_500_onnx_on,
     hubert_base=args.hubert_base,
+    light_hubert=args.light_hubert,
     hubert_base_jp=args.hubert_base_jp,
     hubert_soft=args.hubert_soft,
     nsf_hifigan=args.nsf_hifigan,

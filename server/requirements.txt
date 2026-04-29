@@ -1,13 +1,11 @@
-# # apt-get update
-# # apt-get install -y emacs mlocate wget git curl gcc g++ make unzip
-# # wget https://repo.anaconda.com/archive/Anaconda3-2022.10-Linux-x86_64.sh
-# # bash Anaconda3-2022.10-Linux-x86_64.sh
+--extra-index-url https://download.pytorch.org/whl/cu118
 
 uvicorn==0.21.1
 pyOpenSSL==23.1.1
 numpy==1.23.5
-torch==2.0.1
-torchaudio==2.0.2
+# Updated for CUDA 11.8 support
+torch==2.0.1+cu118
+torchaudio==2.0.2+cu118
 resampy==0.4.2
 python-socketio==5.8.0
 fastapi==0.95.1
@@ -23,7 +21,6 @@ gin==0.1.6
 gin_config==0.5.0
 einops==0.6.0
 local_attention==1.8.5
-websockets==11.0.2
 sounddevice==0.4.6
 dataclasses_json==0.5.7
 onnxsim==0.4.28

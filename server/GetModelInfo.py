@@ -13,6 +13,7 @@ if __name__ == "__main__":
         content_vec_500_onnx="",
         content_vec_500_onnx_on="",
         hubert_base="",
+        light_hubert="",
         hubert_base_jp="",
         hubert_soft="",
         nsf_hifigan="",
@@ -20,7 +21,8 @@ if __name__ == "__main__":
         crepe_onnx_tiny="",
         rmvpe="",
         rmvpe_onnx="",
-        sample_mode=""
+        sample_mode="",
+        whisper_tiny="",
     )
     vcparams = VoiceChangerParamsManager.get_instance()
     vcparams.setParams(voiceChangerParams)
