@@ -1,230 +1,222 @@
-# Plan: Replace HuBERT With LightHuBERT for RVCv2
+# Plan: Replace The Aging HiFi-GAN-Style RVC Vocoder With Vocos
 
-## Goal
+## Objective
 
-Replace the current HuBERT-based feature extractor used by RVCv2 inference with LightHuBERT while preserving the existing RVC pipeline contract:
+Replace the current embedded NSF-HiFi-GAN-style decoder used by the RVC inference path with a Vocos-based vocoder stack that is easier to maintain, produces competitive quality, and can support a cleaner future architecture.
 
-- input audio is resampled to 16 kHz
-- the embedder returns frame features through `Embedder.extractFeatures(...)`
-- RVCv2 continues to use 768-channel features, `embOutputLayer = 12`, and `useFinalProj = False`
+This is a migration plan, not a direct one-step swap. The current RVC decoder is tightly coupled to the model checkpoint and to F0 injection, while Vocos expects acoustic features such as mel-spectrograms or EnCodec-style features.
 
-## Current RVCv2 Path
+## Current State
 
-The current inference path is:
+The active RVC runtime path is:
 
-1. `RVCr2.inference()` in `server/voice_changer/RVC/RVCr2.py`
-2. `createPipeline()` in `server/voice_changer/RVC/pipeline/PipelineGenerator.py`
-3. `Pipeline.exec()` in `server/voice_changer/RVC/pipeline/Pipeline.py`
-4. `Pipeline.extractFeatures()` in `server/voice_changer/RVC/pipeline/Pipeline.py`
-5. `EmbedderManager.getEmbedder()` in `server/voice_changer/RVC/embedder/EmbedderManager.py`
-6. `FairseqHubert.extractFeatures()` in `server/voice_changer/RVC/embedder/FairseqHubert.py`
+1. `RVCr2.initialize()` builds the pipeline.
+2. `PipelineGenerator.createPipeline()` loads inferencer, embedder, pitch extractor, and optional FAISS index.
+3. `RVCInferencer` or `RVCInferencerv2` loads `SynthesizerTrnMs256NSFsid` or `SynthesizerTrnMs768NSFsid`.
+4. `SynthesizerTrn*.infer()` calls `self.dec.infer_realtime(...)`.
+5. `self.dec` is `GeneratorNSF`, an embedded NSF-HiFi-GAN-style decoder.
 
-For official RVCv2 models, `RVCModelSlotGenerator` sets:
+Important consequence:
 
-- `embedder = "hubert_base"`
-- `embOutputLayer = 12`
-- `useFinalProj = False`
-- `embChannels = 768`
+- RVC does not call the standalone `pretrain/nsf_hifigan/model` path used by Diffusion-SVC and DDSP-SVC.
+- The vocoder is embedded in the RVC model definition and checkpoint format.
+- F0 is injected directly into the decoder through the NSF source path.
 
-## Constraints
+## Vocos Facts That Matter
 
-LightHuBERT cannot be treated as a drop-in replacement until these are verified:
+From `Vocos readme.md`:
 
-- the checkpoint format can be loaded by the current fairseq-based code, or a new loader is required
-- the extracted hidden state shape matches current RVCv2 expectations
-- frame stride is compatible with the downstream interpolation logic in `Pipeline.exec()`
-- the chosen output layer maps cleanly to the current `embOutputLayer` field
-- half precision behavior remains stable on CUDA and does not regress CPU fallback
+- Vocos is an inference-time neural vocoder that decodes acoustic features in a single forward pass.
+- The documented pretrained mel model is `charactr/vocos-mel-24khz`.
+- Its example mel input shape is `B, C, T`, with `256` mel channels.
+- The documented pretrained models are 24 kHz, not 32 kHz, 40 kHz, or 48 kHz.
+- Vocos is designed as a vocoder stage, not as a full replacement for the upstream RVC acoustic model.
 
-## LightHuBERT
-The LightHuBERT tutorial support features as follows.
+## Core Architectural Gap
 
-Load different checkpoints to the LightHuBERT architecture, such as base supernet, small supernet, and stage 1.
-Sample a subnet and set the subnet.
-Conduct inference of the subnet with a random input.
+This is the main blocker and should drive the plan.
 
-```python
-import sys
-sys.path.append("../")
+The current RVC model outputs waveform through `GeneratorNSF` using:
 
-import torch
-from lighthubert import LightHuBERT, LightHuBERTConfig
+- latent features from the text encoder and flow
+- speaker conditioning
+- direct F0 conditioning inside the decoder
 
-device="cuda:2"
-wav_input_16khz = torch.randn(1,10000).to(device)
-```
+Vocos does not consume that interface. Vocos expects acoustic features, typically mel-spectrograms, and the README examples use a 24 kHz mel model with 256 mel bins.
 
-LightHuBERT Base Supernet
+That means replacing the current decoder requires one of these architecture changes:
 
-```python
-# checkpoint = torch.load('/path/to/lighthubert_base.pt')
-checkpoint = torch.load('/workspace/projects/lighthubert/checkpoints/lighthubert_base.pt')
-cfg = LightHuBERTConfig(checkpoint['cfg']['model'])
-cfg.supernet_type = 'base'
-model = LightHuBERT(cfg)
-model = model.to(device)
-model = model.eval()
-print(model.load_state_dict(checkpoint['model'], strict=False))
+1. Add an acoustic head that predicts Vocos-compatible mel features, then decode those features with Vocos.
+2. Train a new RVC decoder stack where the current NSF waveform decoder is replaced by a mel predictor plus Vocos.
+3. Keep the existing RVC model frozen and build a bridge module that converts its internal latent representation into Vocos mel space.
 
-# (optional) set a subnet
-subnet = model.supernet.sample_subnet()
-model.set_sample_config(subnet)
-params = model.calc_sampled_param_num()
-print(f"subnet (Params {params / 1e6:.0f}M) | {subnet}")
+Option 1 is the most maintainable target. Option 3 is the fastest experiment path.
 
-# extract the the representation of last layer
-rep = model.extract_features(wav_input_16khz)[0]
+## Recommended Strategy
 
-# extract the the representation of each layer
-hs = model.extract_features(wav_input_16khz, ret_hs=True)[0]
+Use a phased migration with a compatibility bridge first, then move to a native architecture.
 
-print(f"Representation at bottom hidden states: {torch.allclose(rep, hs[-1])}")
-```
+### Phase 1: Feasibility Prototype
 
-## Implementation Strategy
+Goal:
 
-### Phase 1: Compatibility spike
-
-Objective: determine whether LightHuBERT can fit behind the existing `Embedder` interface with minimal pipeline changes.
+- Prove whether Vocos can produce acceptable output quality and latency in the RVC serving model.
 
 Tasks:
 
-1. Obtain the target LightHuBERT checkpoint and identify its runtime dependency.
-2. Confirm whether it is:
-   - fairseq-compatible
-   - Hugging Face-compatible
-   - custom code requiring its own wrapper
-3. Run a small probe on a 16 kHz waveform and record:
-   - output tensor shape
-   - hidden size
-   - frame rate / sequence length
-   - selectable layer indices
-4. Decide whether RVCv2 can reuse `embOutputLayer = 12` and `useFinalProj = False`, or needs a translation layer.
+1. Introduce a new vocoder abstraction layer under `server/voice_changer/RVC` so the pipeline no longer assumes `GeneratorNSF` is the only waveform decoder.
+2. Add a `VocosVocoder` wrapper that can:
+	- lazily load `Vocos.from_pretrained(...)`
+	- run on the selected device
+	- accept mel input in `B, C, T`
+	- return waveform tensors compatible with the existing pipeline output handling
+3. Use the documented pretrained model `charactr/vocos-mel-24khz` for the first experiment.
+4. Build an offline test harness first, outside the realtime path.
+5. Compare:
+	- decode latency
+	- output length alignment
+	- artifact rate
+	- speaker similarity
 
-Exit criteria:
+Deliverable:
 
-- one documented compatibility decision: `drop-in`, `adapter-needed`, or `not-compatible`
+- A standalone script or isolated prototype path that can decode mel features with Vocos and write audio for comparison.
 
-### Phase 2: Add a dedicated LightHuBERT embedder
+### Phase 2: Bridge Model Experiment
 
-Objective: isolate the new encoder behind the existing embedder abstraction instead of modifying pipeline logic first.
+Goal:
 
-Files to add or change:
-
-- add `server/voice_changer/RVC/embedder/LightHubert.py`
-- update `server/voice_changer/RVC/embedder/EmbedderManager.py`
-- update `server/const.py`
-- update `server/voice_changer/utils/VoiceChangerParams.py`
+- Determine the cheapest path to produce Vocos-compatible features from the existing RVC model.
 
 Tasks:
 
-1. Create `LightHubert` implementing the existing `EmbedderProtocol`:
-   - `loadModel(file, dev, isHalf=True)`
-   - `extractFeatures(feats, embOutputLayer=9, useFinalProj=True)`
-2. Keep the public behavior aligned with `FairseqHubert` so `Pipeline.extractFeatures()` does not need to know which encoder is active.
-3. Extend `EmbedderType` with a new value such as `"light_hubert"`.
-4. Update `EmbedderManager.loadEmbedder()` to instantiate `LightHubert` for that type.
-5. Add a new path in `VoiceChangerParams` for the LightHuBERT checkpoint.
+1. Inspect the tensor right before `GeneratorNSF.infer_realtime()`.
+2. Decide whether the bridge input should be:
+	- `z * x_mask`
+	- speaker-conditioned hidden states
+	- another intermediate representation earlier in `SynthesizerTrn*.infer()`
+3. Add a small acoustic projection head that predicts mel features expected by Vocos.
+4. Train or fine-tune that projection head against target mel-spectrograms generated from paired training audio.
+5. Keep the original NSF path available as a baseline and fallback.
 
-Notes:
+Deliverable:
 
-- Do not replace `FairseqHubert` in place initially.
-- Keep the old HuBERT path available behind a feature flag until parity is verified.
+- A branch where the RVC acoustic model can produce mel features and Vocos can decode them offline.
 
-### Phase 3: Wire model and runtime configuration
+### Phase 3: Sample Rate Strategy
 
-Objective: make LightHuBERT selectable without breaking existing models or boot flow.
+Goal:
 
-Files to change:
-
-- `server/MMVCServerSIO.py`
-- `server/downloader/WeightDownloader.py`
-- optionally `server/data/ModelSlot.py`
-- optionally `server/voice_changer/RVC/RVCModelSlotGenerator.py`
+- Resolve the mismatch between existing RVC model sample rates and the available Vocos pretrained model.
 
 Tasks:
 
-1. Add a CLI/runtime parameter for the LightHuBERT checkpoint path.
-2. Decide whether LightHuBERT is:
-   - opt-in only for selected models, or
-   - the new default for all RVCv2 models
-3. If model metadata should drive selection, allow `RVCModelSlot.embedder` to carry `"light_hubert"`.
-4. If boot-time auto-download is desired, add a downloader entry for the LightHuBERT weight.
-5. Preserve backward compatibility so existing `hubert_base` model slots continue to load.
+1. Treat 24 kHz as the initial target because that is what the README documents.
+2. For 32 kHz, 40 kHz, and 48 kHz models, choose one of these paths:
+	- temporary resample-down to 24 kHz before Vocos and resample-up after decode
+	- train or fine-tune Vocos for the repository's actual target sample rates
+	- maintain separate vocoder backends by sample rate
+3. Measure quality loss from resampling before committing to a training effort.
 
-Recommended first rollout:
+Recommendation:
 
-- keep model-slot default as `hubert_base`
-- enable LightHuBERT only when explicitly configured
-- switch defaults only after measured parity is acceptable
+- Start with resampling only for prototype validation.
+- Do not lock the product architecture to 24 kHz resampling if the quality regression is noticeable.
 
-### Phase 4: Validate RVCv2 feature compatibility
+Deliverable:
 
-Objective: prove that LightHuBERT features are acceptable for the downstream generator.
+- A short comparison table covering quality, latency, and implementation complexity for each sample-rate option.
 
-Validation checks:
+### Phase 4: Realtime Integration
 
-1. Unit-level embedder validation
-   - model loads on CPU and CUDA
-   - `extractFeatures()` returns a tensor on the expected device
-   - output dtype is stable for full and half precision
-2. Pipeline-level validation
-   - `Pipeline.exec()` completes without shape errors
-   - interpolation and optional index search still work
-   - f0 and no-f0 RVCv2 paths both run
-3. Regression validation against current HuBERT
-   - compare feature tensor shape for identical audio
-   - compare sequence length before and after `F.interpolate(...)`
-   - compare inference latency and peak memory
-4. Runtime validation
-   - load at least one official RVCv2 model
-   - verify live conversion does not produce silence, NaNs, or severe artifacts
+Goal:
 
-Acceptance target:
-
-- no pipeline shape regressions
-- no new half-precision failures
-- acceptable quality and latency relative to current HuBERT baseline
-
-### Phase 5: Replace the old default
-
-Objective: move from optional support to actual replacement.
+- Integrate Vocos into the low-latency inference path without regressing streaming behavior.
 
 Tasks:
 
-1. Change the default embedder routing in `EmbedderManager` only after Phase 4 passes.
-2. Update `RVCModelSlotGenerator` defaults for official RVCv2 models if LightHuBERT becomes the new standard.
-3. Keep a rollback switch so the old HuBERT path can be re-enabled quickly.
-4. Update any user-facing docs or startup examples that mention `hubert_base.pt`.
+1. Add a runtime-selectable vocoder backend in the RVC pipeline settings.
+2. Preserve the current buffering, padding, and truncation logic in `Pipeline.exec()` while testing Vocos decode chunking behavior.
+3. Verify whether Vocos can operate chunk-by-chunk without audible seams.
+4. If chunk seams appear, add overlap-add or context padding around mel windows.
+5. Validate GPU memory usage and half-precision behavior separately from the current NSF path.
 
-## Recommended Order of Work
+Deliverable:
 
-1. Compatibility spike for one LightHuBERT checkpoint.
-2. Add a new `LightHubert` wrapper behind the existing embedder interface.
-3. Add runtime parameter plumbing.
-4. Validate end-to-end on one RVCv2 model.
-5. Benchmark quality, latency, and memory.
-6. Only then change defaults.
+- A feature-flagged Vocos backend selectable per model or by server setting.
+
+### Phase 5: Model Format And Deployment
+
+Goal:
+
+- Make Vocos a supported and maintainable backend in this repository.
+
+Tasks:
+
+1. Extend model metadata so RVC slots can declare vocoder type.
+2. Decide how Vocos weights are stored:
+	- Hugging Face download at runtime
+	- vendored local checkpoint
+	- explicit model asset in `model_dir`
+3. Add dependency management for `vocos`.
+4. Document fallback behavior when Vocos is unavailable.
+5. Keep ONNX export scope explicit. Do not assume the existing RVC ONNX exporter can export a Vocos-backed path.
+
+Deliverable:
+
+- A documented packaging and loading strategy.
+
+## Concrete Code Areas To Touch
+
+Expected implementation surface:
+
+- `server/voice_changer/RVC/pipeline/Pipeline.py`
+- `server/voice_changer/RVC/pipeline/PipelineGenerator.py`
+- `server/voice_changer/RVC/inferencer/InferencerManager.py`
+- `server/voice_changer/RVC/inferencer/RVCInferencer.py`
+- `server/voice_changer/RVC/inferencer/RVCInferencerv2.py`
+- `server/voice_changer/RVC/inferencer/rvc_models/infer_pack/models.py`
+- `server/voice_changer/RVC/RVCSettings.py`
+- model slot metadata and loader paths under the server model-management layer
+
+Likely new files:
+
+- `server/voice_changer/RVC/vocoder/VocosVocoder.py`
+- `server/voice_changer/RVC/vocoder/VocoderProtocol.py`
+- a prototype or evaluation script for mel decode experiments
 
 ## Risks
 
-- hidden size or layer semantics may not match RVCv2 training expectations
-- frame timing may differ and break downstream interpolation assumptions
-- a new dependency stack may be required if the checkpoint is not fairseq-native
-- half precision may fail even if the current HuBERT path is stable
-- index search quality may degrade if feature distribution shifts significantly
+1. Vocos is not a drop-in waveform decoder for the current latent interface.
+2. The pretrained README path is 24 kHz only, while this repo serves multiple higher sample rates.
+3. The current decoder receives explicit F0 conditioning. Vocos itself does not. F0 influence must be preserved upstream in the acoustic feature prediction path.
+4. Realtime chunking behavior may be worse than the current specialized `infer_realtime()` path.
+5. Existing ONNX export support likely will not carry over without separate work.
 
-## Decision Points
+## Decision Gates
 
-These should be answered before replacing the default path:
+Do not proceed to full replacement unless all of these are true:
 
-1. Is the target LightHuBERT checkpoint fairseq-native or not?
-2. Does it produce 768-dim features at a usable layer for RVCv2?
-3. Should replacement mean:
-   - full swap of `hubert_base`, or
-   - introducing `light_hubert` as a separate embedder option?
-4. Do existing trained RVCv2 models remain acceptable with LightHuBERT features, or is retraining required for quality parity?
+1. Offline Vocos decode quality is competitive with the current NSF decoder.
+2. The bridge or acoustic-head approach preserves speaker identity and pitch stability.
+3. Realtime latency remains within acceptable limits for the existing server UX.
+4. The sample-rate story is acceptable without excessive resampling artifacts.
+5. Packaging and runtime loading are simple enough to support in production.
 
-## Recommended Outcome
+## Acceptance Criteria
 
-Implement LightHuBERT as a new embedder option first, validate it end-to-end in the existing RVCv2 pipeline, and only replace the old HuBERT default after measured compatibility is confirmed.
+The migration can be considered successful when:
+
+1. An RVC model can run with either the legacy NSF decoder or the new Vocos backend.
+2. The Vocos path is selectable without changing unrelated RVC pipeline behavior.
+3. Audio quality is at least neutral or better on representative models.
+4. End-to-end latency remains acceptable for realtime conversion.
+5. Documentation clearly explains supported sample rates, dependencies, and fallback behavior.
+
+## Recommended First Implementation Order
+
+1. Add a standalone Vocos inference wrapper and offline decode test.
+2. Build a bridge experiment that predicts Vocos mel features from existing RVC internal states.
+3. Measure 24 kHz prototype quality and latency.
+4. Decide whether to invest in resampling, fine-tuning, or training a native Vocos-compatible acoustic head.
+5. Only then wire a feature-flagged Vocos backend into the realtime pipeline.

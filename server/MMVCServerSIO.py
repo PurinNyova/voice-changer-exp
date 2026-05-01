@@ -56,7 +56,7 @@ def setupArgParser():
     parser.add_argument("--content_vec_500_onnx", type=str, default="pretrain/content_vec_500.onnx", help="path to content_vec_500 model(onnx)")
     parser.add_argument("--content_vec_500_onnx_on", type=strtobool, default=True, help="use or not onnx for  content_vec_500")
     parser.add_argument("--hubert_base", type=str, default="pretrain/hubert_base.pt", help="path to hubert_base model(pytorch)")
-    parser.add_argument("--light_hubert", type=str, default="pretrain/lighthubert_base.pt", help="path to LightHuBERT model(pytorch)")
+    parser.add_argument("--light_hubert", type=str, default="", help="optional path to LightHuBERT model(pytorch). When omitted, hubert_base remains the default embedder.")
     parser.add_argument("--hubert_base_jp", type=str, default="pretrain/rinna_hubert_base_jp.pt", help="path to hubert_base_jp model(pytorch)")
     parser.add_argument("--hubert_soft", type=str, default="pretrain/hubert/hubert-soft-0d54a1f4.pt", help="path to hubert_soft model(pytorch)")
     parser.add_argument("--whisper_tiny", type=str, default="pretrain/whisper_tiny.pt", help="path to hubert_soft model(pytorch)")

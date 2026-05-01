@@ -42,6 +42,8 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
         cpt = torch.load(modelPath, map_location="cpu")
         config_len = len(cpt["config"])
         version = cpt.get("version", "v1")
+        vcparams = VoiceChangerParamsManager.get_instance().params
+        default_v2_embedder = "light_hubert" if vcparams.light_hubert else "hubert_base"
 
         slot = RVCModelSlot(**asdict(slot))
 
@@ -81,7 +83,7 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
                 slot.embChannels = 768
                 slot.embOutputLayer = 12
                 slot.useFinalProj = False
-                slot.embedder = "light_hubert"
+                slot.embedder = default_v2_embedder
                 print("[Voice Changer] Official Model(pyTorch) : v2")
 
         else:
@@ -123,6 +125,8 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
         modelmeta = tmp_onnx_session.get_modelmeta()
         try:
             slot = RVCModelSlot(**asdict(slot))
+            vcparams = VoiceChangerParamsManager.get_instance().params
+            default_v2_embedder = "light_hubert" if vcparams.light_hubert else "hubert_base"
             metadata = json.loads(modelmeta.custom_metadata_map["metadata"])
 
             # slot.modelType = metadata["modelType"]
@@ -146,7 +150,7 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
 
             if "embedder" not in metadata:
                 if slot.embChannels == 768 and slot.embOutputLayer == 12 and slot.useFinalProj is False:
-                    slot.embedder = "light_hubert"
+                    slot.embedder = default_v2_embedder
                 else:
                     slot.embedder = "hubert_base"
             else:

@@ -21,11 +21,11 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
     rmvpe = voiceChangerParams.rmvpe
     rmvpe_onnx = voiceChangerParams.rmvpe_onnx
     whisper_tiny = voiceChangerParams.whisper_tiny
+    use_light_hubert = bool(light_hubert)
 
     weight_files = [
         content_vec_500_onnx,
         hubert_base,
-        light_hubert,
         hubert_base_jp,
         hubert_soft,
         nsf_hifigan,
@@ -34,6 +34,8 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
         rmvpe,
         whisper_tiny,
     ]
+    if use_light_hubert:
+        weight_files.append(light_hubert)
 
     # file exists check (currently only for rvc)
     downloadParams = []
@@ -45,7 +47,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
                 "position": 0,
             }
         )
-    if os.path.exists(light_hubert) is False:
+    if use_light_hubert and os.path.exists(light_hubert) is False:
         downloadParams.append(
             {
                 "url": "https://huggingface.co/mechanicalsea/lighthubert/resolve/main/lighthubert_base.pt",
@@ -151,7 +153,7 @@ def downloadWeight(voiceChangerParams: VoiceChangerParams):
     with ThreadPoolExecutor() as pool:
         pool.map(download, downloadParams)
 
-    if os.path.exists(hubert_base) is False or os.path.exists(light_hubert) is False or os.path.exists(hubert_base_jp) is False or os.path.exists(hubert_soft) is False or os.path.exists(nsf_hifigan) is False or os.path.exists(nsf_hifigan_config) is False:
+    if os.path.exists(hubert_base) is False or (use_light_hubert and os.path.exists(light_hubert) is False) or os.path.exists(hubert_base_jp) is False or os.path.exists(hubert_soft) is False or os.path.exists(nsf_hifigan) is False or os.path.exists(nsf_hifigan_config) is False:
         raise WeightDownladException()
 
     # ファイルサイズをログに書き込む。（デバッグ用）
